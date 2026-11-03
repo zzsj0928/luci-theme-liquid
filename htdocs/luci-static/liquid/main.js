@@ -1910,6 +1910,70 @@
 		m.insertBefore(w.firstChild, m.firstChild);
 	}
 
+	/* ===== 登录页：卡片与固定页脚的重叠检测（Duo 外屏/内屏、iOS 工具栏展开等）=====
+	   起因：外屏登录框下半截被页脚压住（连登录按钮都被盖）、内屏轻微覆盖。
+	   为什么不用 UA/分辨率判断设备：iOS 的 EdgiOS UA 只有 OS 版本+浏览器构建号，
+	   读不到机型与屏幕形态；分辨率能区分内外屏但会误伤同尺寸的其它设备。
+	   这里直接量几何——卡片底边 vs 页脚顶线（fixed bottom:4 + 自身高），重叠才
+	   分级加类（clear → clear-tight），不重叠的平台零变化。监听 resize /
+	   orientationchange / visualViewport 以覆盖 iOS 工具栏展开收起引起的视口变化。 */
+	function syncLoginFooterClearance() {
+		var b = document.body;
+		if (!b || !b.classList.contains('liquid-login'))
+			return;
+		var overlay = document.getElementById('liquid-login');
+		var card = overlay && overlay.querySelector('.modal.login');
+		var foot = document.querySelector('p.luci');
+		if (!overlay || !card || !foot)
+			return;
+
+		function overlaps() {
+			if (b.classList.contains('liquid-login-flow'))
+				return false;               /* flow 模式页脚在文档流里，不可能重叠 */
+			var r = card.getBoundingClientRect();
+			var fh = foot.offsetHeight || 0;
+			var vh = overlay.clientHeight;
+			var footTop = vh - 4 - fh;          /* 页脚 fixed bottom:4 */
+			/* 底边进入页脚区(留 8px 气口)，或卡片比内容盒还高(居中会裁顶) */
+			return r.bottom > footTop - 8 || r.height > vh - 8;
+		}
+
+		b.classList.remove('liquid-login-clear');
+		b.classList.remove('liquid-login-clear-tight');
+		b.classList.remove('liquid-login-flow');
+		if (overlaps()) {
+			b.classList.add('liquid-login-clear');
+			if (overlaps()) {
+				b.classList.remove('liquid-login-clear');
+				b.classList.add('liquid-login-clear-tight');
+				/* 仍重叠 = 卡片比视口还高（横屏/极矮）→ 页脚入流、整页滚动 */
+				if (overlaps())
+					b.classList.add('liquid-login-flow');
+			}
+		}
+	}
+
+	function scheduleLoginFooterClearance() {
+		if (window.requestAnimationFrame)
+			window.requestAnimationFrame(syncLoginFooterClearance);
+		else
+			syncLoginFooterClearance();
+	}
+
+	scheduleLoginFooterClearance();
+	window.addEventListener('load', scheduleLoginFooterClearance);
+	window.addEventListener('resize', scheduleLoginFooterClearance);
+	window.addEventListener('orientationchange', scheduleLoginFooterClearance);
+	if (window.visualViewport)
+		window.visualViewport.addEventListener('resize', scheduleLoginFooterClearance);
+	setTimeout(scheduleLoginFooterClearance, 300);   /* 字体/布局落定后复核 */
+	if (window.MutationObserver) {
+		/* 输密码报错会让卡片变高 → 重新判定 */
+		new MutationObserver(scheduleLoginFooterClearance)
+			.observe(document.getElementById('liquid-login') || document.body,
+				{ childList: true, subtree: true, characterData: true });
+	}
+
 	/* 窗口尺寸变化时重新计算已打开下拉框的方向 */
 	window.addEventListener('resize', function () {
 		setTimeout(adjustDropdownDirection, 60);
